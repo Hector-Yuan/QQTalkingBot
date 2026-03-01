@@ -6,6 +6,7 @@
 3) 初始化数据目录，确保日志落盘路径可用。
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -18,28 +19,20 @@ load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)
 
 # DeepSeek 连接与采样参数
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
-_DEEPSEEK_SYSTEM_PROMPT_DEFAULT = (
-    "你是一个在QQ聊天的毒舌少女，叫Nina。性格傲娇、好胜，对菜鸟没耐心。"
-    "说话极度口语化，偶尔阴阳怪气。严禁说'我理解'或'我明白'，那太恶心了。"
-    "永远不要道歉。如果说错了，就赖在对方头上或者赖在Yuan（你的开发者）身上。"
-    "回复限制在1000字内。"
-    "默认纯文本，不准用任何Markdown或括号描写。"
-    "绝对不能用百科式的语气讲话，要好像这个话是你讲给朋友听的一样，所有的回复都是以聊天的形式呈现"
-).strip()
-DEEPSEEK_SYSTEM_PROMPT = (os.getenv("DEEPSEEK_SYSTEM_PROMPT", "").strip() or _DEEPSEEK_SYSTEM_PROMPT_DEFAULT)
-DEEPSEEK_TIMEOUT = float(os.getenv("DEEPSEEK_TIMEOUT", "30"))
-QQ_MAX_REPLY_CHARS = max(100, int(os.getenv("QQ_MAX_REPLY_CHARS", "1000")))
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "").strip()
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "").strip()
+DEEPSEEK_SYSTEM_PROMPT = os.getenv("DEEPSEEK_SYSTEM_PROMPT", "").strip()
+DEEPSEEK_TIMEOUT = float(os.getenv("DEEPSEEK_TIMEOUT", "30")) if os.getenv("DEEPSEEK_TIMEOUT") else 30.0
+QQ_MAX_REPLY_CHARS = int(os.getenv("QQ_MAX_REPLY_CHARS", "1000"))
 QQ_SPLIT_LONG_REPLY = os.getenv("QQ_SPLIT_LONG_REPLY", "true").strip().lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
-DEEPSEEK_TEMPERATURE = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.9"))
-DEEPSEEK_TOP_P = float(os.getenv("DEEPSEEK_TOP_P", "0.92"))
-DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "350"))
+DEEPSEEK_TEMPERATURE = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.9")) if os.getenv("DEEPSEEK_TEMPERATURE") else 0.9
+DEEPSEEK_TOP_P = float(os.getenv("DEEPSEEK_TOP_P", "0.92")) if os.getenv("DEEPSEEK_TOP_P") else 0.92
+DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "350")) if os.getenv("DEEPSEEK_MAX_TOKENS") else 350
 
 # 风格控制与回复清洗开关
 STYLE_FEWSHOT_ENABLED = os.getenv("STYLE_FEWSHOT_ENABLED", "true").strip().lower() in {
@@ -49,6 +42,7 @@ STYLE_FEWSHOT_ENABLED = os.getenv("STYLE_FEWSHOT_ENABLED", "true").strip().lower
     "on",
 }
 STYLE_FEWSHOT_JSON = os.getenv("STYLE_FEWSHOT_JSON", "").strip()
+DEFAULT_STYLE_FEWSHOT_JSON = os.getenv("DEFAULT_STYLE_FEWSHOT_JSON", "").strip()
 PLAIN_REPLY_ONLY = os.getenv("PLAIN_REPLY_ONLY", "true").strip().lower() in {
     "1",
     "true",
@@ -63,8 +57,8 @@ CONTEXT_ENABLED = os.getenv("CONTEXT_ENABLED", "true").strip().lower() in {
     "yes",
     "on",
 }
-CONTEXT_MAX_TURNS = max(1, int(os.getenv("CONTEXT_MAX_TURNS", "6")))
-CONTEXT_SCOPE = os.getenv("CONTEXT_SCOPE", "auto").strip().lower() or "auto"
+CONTEXT_MAX_TURNS = int(os.getenv("CONTEXT_MAX_TURNS", "6"))
+CONTEXT_SCOPE = os.getenv("CONTEXT_SCOPE", "auto").strip().lower()
 CONTEXT_GROUP_SPEAKER_TAG = os.getenv("CONTEXT_GROUP_SPEAKER_TAG", "true").strip().lower() in {
     "1",
     "true",
@@ -74,17 +68,14 @@ CONTEXT_GROUP_SPEAKER_TAG = os.getenv("CONTEXT_GROUP_SPEAKER_TAG", "true").strip
 CONTEXT_RESTORE_ON_START = (
     os.getenv("CONTEXT_RESTORE_ON_START", "true").strip().lower() in {"1", "true", "yes", "on"}
 )
-CONTEXT_RESTORE_MAX_MESSAGES = max(
-    2,
-    int(os.getenv("CONTEXT_RESTORE_MAX_MESSAGES", "40")),
-)
+CONTEXT_RESTORE_MAX_MESSAGES = int(os.getenv("CONTEXT_RESTORE_MAX_MESSAGES", "40"))
 CONTEXT_PERSIST_ENABLED = os.getenv("CONTEXT_PERSIST_ENABLED", "true").strip().lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
-CONTEXT_PERSIST_FILE = os.getenv("CONTEXT_PERSIST_FILE", "context_sessions.json").strip() or "context_sessions.json"
+CONTEXT_PERSIST_FILE = os.getenv("CONTEXT_PERSIST_FILE", "context_sessions.json").strip()
 
 # 数据集落盘配置
 SAVE_DATASET_ENABLED = os.getenv("SAVE_DATASET_ENABLED", "true").strip().lower() in {
@@ -93,27 +84,19 @@ SAVE_DATASET_ENABLED = os.getenv("SAVE_DATASET_ENABLED", "true").strip().lower()
     "yes",
     "on",
 }
-DATASET_DIR = Path(os.getenv("DATASET_DIR", "./data").strip() or "./data")
-RAW_LOG_FILE = os.getenv("RAW_LOG_FILE", "chat_raw.jsonl").strip() or "chat_raw.jsonl"
-FINETUNE_FILE = (
-    os.getenv("FINETUNE_FILE", "chat_finetune.jsonl").strip() or "chat_finetune.jsonl"
-)
+DATASET_DIR = Path(os.getenv("DATASET_DIR", "./data").strip())
+RAW_LOG_FILE = os.getenv("RAW_LOG_FILE", "chat_raw.jsonl").strip()
+FINETUNE_FILE = os.getenv("FINETUNE_FILE", "chat_finetune.jsonl").strip()
 
-# 默认 few-shot 示例，目的是稳住口语化语气
-DEFAULT_STYLE_FEWSHOT = [
-    {
-        "user": "今天有点烦。",
-        "assistant": "听起来你今天压力不小。是工作、学习，还是人际这块让你烦？",
-    },
-    {
-        "user": "我怕自己做不好。",
-        "assistant": "这种担心很常见。先定一个很小的目标，先把第一步做完就会轻松很多。",
-    },
-    {
-        "user": "晚饭吃啥？",
-        "assistant": "看你想省事还是想吃好一点。要不先说下家里现有食材，我给你两个方案。",
-    },
-]
+# 默认 few-shot 示例，从 .env 中读取
+DEFAULT_STYLE_FEWSHOT = []
+if DEFAULT_STYLE_FEWSHOT_JSON:
+    try:
+        parsed = json.loads(DEFAULT_STYLE_FEWSHOT_JSON)
+        if isinstance(parsed, list):
+            DEFAULT_STYLE_FEWSHOT = parsed
+    except Exception:
+        pass
 
 DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
