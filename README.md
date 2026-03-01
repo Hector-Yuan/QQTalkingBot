@@ -120,18 +120,59 @@ python bot.py
 - `requirements.txt`：依赖
 - `.env.example`：环境变量模板
 
-## 7. Docker Compose（仅 Bot）
+## 7. Docker 部署（推荐用于服务器 24/7 运行）
+
+### Ubuntu/Linux 服务器部署
 
 1. 在 `.env` 中至少配置：
-	- `PORT`（例如 `8082`）
-	- `ONEBOT_ACCESS_TOKEN`
-	- `DEEPSEEK_API_KEY`
-2. 启动：
+   - `HOST=0.0.0.0`（容器必须监听所有网络接口）
+   - `PORT=8082`（或其他端口）
+   - `ONEBOT_ACCESS_TOKEN`
+   - `DEEPSEEK_API_KEY`
 
-```powershell
-docker compose up -d --build
+2. 上传项目到服务器后，执行启动脚本：
+
+```bash
+chmod +x start.sh stop.sh   # 赋予执行权限
+./start.sh                   # 启动容器
 ```
 
-3. 如果 NapCat 运行在同一台服务器（原生安装），在 OneBot 里配置反向 WS：
-	- `ws://127.0.0.1:${PORT}/onebot/v11/ws`
-	- Access Token 与 `.env` 的 `ONEBOT_ACCESS_TOKEN` 一致
+3. 查看日志：
+
+```bash
+docker logs -f qqbot
+```
+
+4. 停止容器：
+
+```bash
+./stop.sh
+```
+
+### NapCat 配置（假设 NapCat 运行在宿主机上）
+
+在 NapCat 的 OneBot 配置中：
+- 反向 WS 地址：`ws://127.0.0.1:8082/onebot/v11/ws`
+- Access Token：与 `.env` 的 `ONEBOT_ACCESS_TOKEN` 一致
+
+### 手动 Docker 命令（不使用脚本）
+
+```bash
+# 构建镜像
+docker build -t qqbot .
+
+# 运行容器
+docker run -d \
+  --name qqbot \
+  --restart always \
+  -p 8082:8082 \
+  -v $(pwd)/data:/app/data \
+  --env-file .env \
+  qqbot
+
+# 查看日志
+docker logs -f qqbot
+
+# 停止并删除
+docker stop qqbot && docker rm qqbot
+```
