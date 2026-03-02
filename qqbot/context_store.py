@@ -70,16 +70,19 @@ def build_context_user_text(
 ) -> str:
     """构建写入模型上下文的用户文本。
 
-    在群共享上下文模式下，给用户发言增加 `[用户ID]` 前缀，
-    用于降低“不同人被当同一人”的串台风险。
+    规则：
+    - 群聊中总是给用户消息加 `[用户ID]` 标记，便于模型区分发言者。
+    - 私聊中不加标记。
     """
 
     text = str(user_text or "").strip()
     if not text:
         return ""
 
-    if CONTEXT_GROUP_SPEAKER_TAG and (CONTEXT_SCOPE == "group" or (CONTEXT_SCOPE == "auto" and group_id)):
+    # 群聊中始终标记用户，便于模型识别不同发言者
+    if group_id:
         return f"[用户{user_id}] {text}"
+    
     return text
 
 

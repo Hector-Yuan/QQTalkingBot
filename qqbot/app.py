@@ -6,6 +6,7 @@ from nonebot.adapters.onebot.v11 import Adapter
 from .config import validate_runtime_config
 from .context_store import restore_session_history
 from .handlers import register_handlers
+from .test_api import register_test_api
 
 
 def main() -> None:
@@ -25,5 +26,6 @@ def main() -> None:
     validate_runtime_config()
     restore_session_history()
     register_handlers()
+    register_test_api()
 
     nonebot.run()

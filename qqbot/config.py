@@ -77,6 +77,15 @@ CONTEXT_PERSIST_ENABLED = os.getenv("CONTEXT_PERSIST_ENABLED", "true").strip().l
 }
 CONTEXT_PERSIST_FILE = os.getenv("CONTEXT_PERSIST_FILE", "context_sessions.json").strip()
 
+# 本地联调测试接口
+TEST_API_ENABLED = os.getenv("TEST_API_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+TEST_API_TOKEN = os.getenv("TEST_API_TOKEN", "").strip()
+
 # 数据集落盘配置
 SAVE_DATASET_ENABLED = os.getenv("SAVE_DATASET_ENABLED", "true").strip().lower() in {
     "1",
@@ -122,6 +131,9 @@ def validate_runtime_config() -> None:
     if not os.getenv("ONEBOT_ACCESS_TOKEN", "").strip():
         logger.warning("未设置 ONEBOT_ACCESS_TOKEN，NapCat 对接建议启用 token 鉴权。")
 
+    if TEST_API_ENABLED and not TEST_API_TOKEN:
+        logger.warning("TEST_API_ENABLED=true 且未设置 TEST_API_TOKEN，测试接口将无鉴权。")
+
     logger.info(
         "配置摘要：HOST={} PORT={} MODEL={} DATASET={} CONTEXT={}({}轮,scope={}) TEMP={} TOP_P={}",
         os.getenv("HOST", "127.0.0.1"),
@@ -135,3 +147,4 @@ def validate_runtime_config() -> None:
         DEEPSEEK_TOP_P,
     )
     logger.info("本次启动 PROMPT：{}", DEEPSEEK_SYSTEM_PROMPT)
+    logger.info("测试接口：{} (/dev/chat)", "on" if TEST_API_ENABLED else "off")

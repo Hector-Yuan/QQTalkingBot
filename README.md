@@ -76,9 +76,9 @@ python bot.py
 
 - 机器人会按会话（私聊或群聊）缓存最近 `CONTEXT_MAX_TURNS` 轮对话。
 - 每次调用 DeepSeek 时，会附带这些历史消息，让回复更连贯。
-- 当你希望“重开话题”时，发送 `/clearctx` 即可清空当前会话记忆。
+- **在群聊中**，每条用户消息都会自动加上 `[用户ID]` 标记，帮助模型识别不同发言者。
+- 当你希望"重开话题"时，发送 `/clearctx` 即可清空当前会话记忆。
 - 建议保持 `CONTEXT_SCOPE=auto`：群聊走群上下文、私聊走用户上下文。
-- 若群里多人都在和 bot 说话，建议保持 `CONTEXT_GROUP_SPEAKER_TAG=true`，可减少“把不同人当同一人”的串台。
 - 若经常重启 bot，保持 `CONTEXT_RESTORE_ON_START=true`，可减少“重启后断上下文”。
 - 若希望重启后更稳定续聊，保持 `CONTEXT_PERSIST_ENABLED=true`，程序会将会话写入 `DATASET_DIR/context_sessions.json`。
 
@@ -106,6 +106,31 @@ python bot.py
 ```
 
 你可以后续基于这个文件做清洗（脱敏、过滤低质量样本）再用于模型微调。
+
+## 6.5 本地联调测试接口（不依赖 NapCat）
+
+用于上线前验证 prompt、采样参数和上下文策略是否达标。
+
+1. 在 `.env` 中配置：
+   - `TEST_API_ENABLED=true`
+   - `TEST_API_TOKEN=你自定义的token`（建议设置）
+
+2. 启动 bot 后，调用接口：
+
+```bash
+curl -X POST "http://127.0.0.1:8082/dev/chat" \
+  -H "Content-Type: application/json" \
+  -H "X-Test-Token: your_token" \
+  -d '{"text":"你好，先做个联调","user_id":"tester-1","message_type":"private"}'
+```
+
+3. 返回示例：
+
+```json
+{"ok":true,"conversation_id":"private:tester-1","reply":"你好呀，联调收到～"}
+```
+
+你也可以传同一个 `conversation_id`，连续多轮测试上下文效果。
 
 ## 文件说明
 

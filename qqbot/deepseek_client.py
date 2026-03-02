@@ -29,6 +29,7 @@ from .config import (
     STYLE_FEWSHOT_JSON,
 )
 from .context_store import append_turn, build_context_user_text, get_conversation_id, get_history
+from .context_store import build_conversation_id
 from .text_utils import enforce_reply_length_limit, sanitize_reply_text
 
 
@@ -85,33 +86,51 @@ async def ask_deepseek(event: MessageEvent, user_text: str) -> str:
     if not DEEPSEEK_API_KEY:
         return "未配置 DEEPSEEK_API_KEY，请先在 .env 中填写。"
 
-    conversation_id = get_conversation_id(event)
-    lock = _get_conversation_lock(conversation_id)
+    group_id = getattr(event, "group_id", None)
+    return await ask_deepseek_for_session(
+        user_text=user_text,
+        message_type=event.message_type,
+        user_id=event.user_id,
+        group_id=group_id,
+        conversation_id=get_conversation_id(event),
+    )
+
+
+async def ask_deepseek_for_session(
+    user_text: str,
+    message_type: str = "private",
+    user_id: str | int = "dev",
+    group_id: str | int | None = None,
+    conversation_id: str | None = None,
+) -> str:
+    """按会话参数调用 DeepSeek（用于 HTTP 测试与非 OneBot 场景）。
+
+    当 `conversation_id` 未提供时，会按当前上下文策略自动生成会话键。
+    """
+
+    resolved_conversation_id = conversation_id or build_conversation_id(message_type, user_id, group_id)
+    lock = _get_conversation_lock(resolved_conversation_id)
 
     async with lock:
-        group_id = getattr(event, "group_id", None)
         context_user_text = build_context_user_text(
-            message_type=event.message_type,
-            user_id=event.user_id,
+            message_type=message_type,
+            user_id=user_id,
             group_id=group_id,
             user_text=user_text,
         )
         if not context_user_text:
             return "你先说点内容，我再接。"
 
-        history = await get_history(conversation_id)
+        history = await get_history(resolved_conversation_id)
 
-        # 请求端点：兼容用户自定义 base_url
         endpoint = f"{DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
         headers = {
             "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
             "Content-Type": "application/json",
         }
         messages = [{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT}]
-        # few-shot 放在 system 后，帮助模型稳定语气。
         if STYLE_FEWSHOT_ENABLED:
             messages.extend(build_style_fewshot_messages())
-        # history 在 few-shot 后，保证近期会话优先级更高。
         if CONTEXT_ENABLED and history:
             messages.extend(history)
         messages.append({"role": "user", "content": context_user_text})
@@ -144,7 +163,6 @@ async def ask_deepseek(event: MessageEvent, user_text: str) -> str:
             return "DeepSeek 未返回有效文本。"
 
         if PLAIN_REPLY_ONLY:
-            # 业务要求默认纯文本，尽量移除标题/列表/markdown 痕迹。
             text = sanitize_reply_text(text)
             if not text:
                 text = "我换个更直白的说法：你可以再说具体一点，我好给你更贴近的建议。"
@@ -152,6 +170,6 @@ async def ask_deepseek(event: MessageEvent, user_text: str) -> str:
         text = enforce_reply_length_limit(text)
 
         if CONTEXT_ENABLED:
-            await append_turn(conversation_id, context_user_text, text)
+            await append_turn(resolved_conversation_id, context_user_text, text)
 
         return text
