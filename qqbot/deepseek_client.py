@@ -8,6 +8,7 @@
 """
 
 import json
+import asyncio
 
 import httpx
 from nonebot.adapters.onebot.v11 import MessageEvent
@@ -29,6 +30,17 @@ from .config import (
 )
 from .context_store import append_turn, build_context_user_text, get_conversation_id, get_history
 from .text_utils import enforce_reply_length_limit, sanitize_reply_text
+
+
+_CONVERSATION_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _get_conversation_lock(conversation_id: str) -> asyncio.Lock:
+    lock = _CONVERSATION_LOCKS.get(conversation_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _CONVERSATION_LOCKS[conversation_id] = lock
+    return lock
 
 
 def build_style_fewshot_messages() -> list[dict]:
@@ -74,69 +86,72 @@ async def ask_deepseek(event: MessageEvent, user_text: str) -> str:
         return "未配置 DEEPSEEK_API_KEY，请先在 .env 中填写。"
 
     conversation_id = get_conversation_id(event)
-    group_id = getattr(event, "group_id", None)
-    context_user_text = build_context_user_text(
-        message_type=event.message_type,
-        user_id=event.user_id,
-        group_id=group_id,
-        user_text=user_text,
-    )
-    if not context_user_text:
-        return "你先说点内容，我再接。"
+    lock = _get_conversation_lock(conversation_id)
 
-    history = await get_history(conversation_id)
+    async with lock:
+        group_id = getattr(event, "group_id", None)
+        context_user_text = build_context_user_text(
+            message_type=event.message_type,
+            user_id=event.user_id,
+            group_id=group_id,
+            user_text=user_text,
+        )
+        if not context_user_text:
+            return "你先说点内容，我再接。"
 
-    # 请求端点：兼容用户自定义 base_url
-    endpoint = f"{DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    messages = [{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT}]
-    # few-shot 放在 system 后，帮助模型稳定语气。
-    if STYLE_FEWSHOT_ENABLED:
-        messages.extend(build_style_fewshot_messages())
-    # history 在 few-shot 后，保证近期会话优先级更高。
-    if CONTEXT_ENABLED and history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": context_user_text})
+        history = await get_history(conversation_id)
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "messages": messages,
-        "temperature": DEEPSEEK_TEMPERATURE,
-        "top_p": DEEPSEEK_TOP_P,
-        "max_tokens": DEEPSEEK_MAX_TOKENS,
-    }
+        # 请求端点：兼容用户自定义 base_url
+        endpoint = f"{DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        messages = [{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT}]
+        # few-shot 放在 system 后，帮助模型稳定语气。
+        if STYLE_FEWSHOT_ENABLED:
+            messages.extend(build_style_fewshot_messages())
+        # history 在 few-shot 后，保证近期会话优先级更高。
+        if CONTEXT_ENABLED and history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": context_user_text})
 
-    try:
-        async with httpx.AsyncClient(timeout=DEEPSEEK_TIMEOUT) as client:
-            response = await client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-    except httpx.HTTPStatusError as error:
-        return f"DeepSeek 接口返回错误：HTTP {error.response.status_code}"
-    except Exception:
-        return "调用 DeepSeek 失败，请检查网络或 API 配置。"
+        payload = {
+            "model": DEEPSEEK_MODEL,
+            "messages": messages,
+            "temperature": DEEPSEEK_TEMPERATURE,
+            "top_p": DEEPSEEK_TOP_P,
+            "max_tokens": DEEPSEEK_MAX_TOKENS,
+        }
 
-    choices = data.get("choices") or []
-    if not choices:
-        return "DeepSeek 返回为空，请稍后重试。"
+        try:
+            async with httpx.AsyncClient(timeout=DEEPSEEK_TIMEOUT) as client:
+                response = await client.post(endpoint, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as error:
+            return f"DeepSeek 接口返回错误：HTTP {error.response.status_code}"
+        except Exception:
+            return "调用 DeepSeek 失败，请检查网络或 API 配置。"
 
-    content = (choices[0].get("message") or {}).get("content", "")
-    text = str(content).strip()
-    if not text:
-        return "DeepSeek 未返回有效文本。"
+        choices = data.get("choices") or []
+        if not choices:
+            return "DeepSeek 返回为空，请稍后重试。"
 
-    if PLAIN_REPLY_ONLY:
-        # 业务要求默认纯文本，尽量移除标题/列表/markdown 痕迹。
-        text = sanitize_reply_text(text)
+        content = (choices[0].get("message") or {}).get("content", "")
+        text = str(content).strip()
         if not text:
-            text = "我换个更直白的说法：你可以再说具体一点，我好给你更贴近的建议。"
+            return "DeepSeek 未返回有效文本。"
 
-    text = enforce_reply_length_limit(text)
+        if PLAIN_REPLY_ONLY:
+            # 业务要求默认纯文本，尽量移除标题/列表/markdown 痕迹。
+            text = sanitize_reply_text(text)
+            if not text:
+                text = "我换个更直白的说法：你可以再说具体一点，我好给你更贴近的建议。"
 
-    if CONTEXT_ENABLED:
-        await append_turn(conversation_id, context_user_text, text)
+        text = enforce_reply_length_limit(text)
 
-    return text
+        if CONTEXT_ENABLED:
+            await append_turn(conversation_id, context_user_text, text)
+
+        return text
